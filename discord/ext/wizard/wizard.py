@@ -1,6 +1,6 @@
 import asyncio
 import inspect
-from typing import Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from discord.abc import Messageable
 from discord.ext.commands import AutoShardedBot, Bot, CommandError, UserInputError
@@ -32,17 +32,25 @@ class EmbedWizard:
         bot: BotType,
         channel: Messageable,
         user: Union[User, Member],
-        converters: Dict[type, Callable],
+        converters: Dict[type, Callable] = None,
         default_timeout=60,
+        yes_emoji: str = "\u2705",
+        no_emoji: str = "\u274c",
     ) -> None:
-        self.prompts = prompts
-        self.channel = channel
-        self.user = user
-        self.bot = bot
+        self.prompts: List[Prompt] = prompts
+        self.channel: Messageable = channel
+        self.user: Union[User, Member] = user
+        self.bot: BotType = bot
         self._message: Optional[Message] = None
-        self.converters = ConverterMapping(converters)
-        self.default_timeout = default_timeout
-        self.results = []
+        self.converters: ConverterMapping = ConverterMapping(
+            {} if converters is None else converters
+        )
+        self.default_timeout: int = default_timeout
+        self.results: List[Any] = []
+
+        # Emojis
+        self.yes_emoji: str = yes_emoji
+        self.no_emoji: str = no_emoji
 
     # Properties
 
@@ -61,7 +69,7 @@ class EmbedWizard:
     def default_message_check(self, m: Message) -> bool:
         return m.channel == self.channel and self.user == m.author
 
-    def default_reaction_check(self, u: User, r: Reaction) -> bool:
+    def default_reaction_check(self, r: Reaction, u: User) -> bool:
         return u == self.user and self.message == r.message
 
     # Check combiners
@@ -79,15 +87,15 @@ class EmbedWizard:
         if not check:
             return self.default_reaction_check
 
-        def combined_check(u: User, r: Reaction):
-            return self.default_reaction_check(u, r) and check(u, r)
+        def combined_check(r: Reaction, u: User):
+            return self.default_reaction_check(r, u) and check(r, u)
 
         return combined_check
 
     # Helpers
 
     def get_timeout(self, prompt_timeout):
-        return self.default_timeout or prompt_timeout
+        return prompt_timeout or self.default_timeout
 
     # Input methods
 
@@ -102,15 +110,39 @@ class EmbedWizard:
         converter = self.converters[prompt.res_type]
         check = self.combine_message_checks(prompt.check)
         timeout = self.get_timeout(prompt.timeout)
-        try:
-            msg = await self.bot.wait_for("message", check=check, timeout=timeout)
-        except asyncio.TimeoutError as exc:
-            raise WizardFailure from exc
+        msg = await self.bot.wait_for("message", check=check, timeout=timeout)
         ctx = await self.bot.get_context(msg)
         return await maybe_async(converter, ctx, msg.content)
 
     async def get_reaction_input(self, prompt: Prompt):
-        raise NotImplementedError("Reaction input system is yet to be added!")
+        timeout = self.get_timeout(prompt.timeout)
+        if prompt.res_type in (Reaction, Emoji):
+            check = self.combine_reaction_checks(prompt.check)
+            reaction, _ = await self.bot.wait_for(
+                "reaction_add", check=check, timeout=timeout
+            )
+            if prompt.res_type is Reaction:
+                return reaction
+            return reaction.emoji
+
+        if prompt.res_type is bool:
+            await self.message.add_reaction(self.yes_emoji)
+            await self.message.add_reaction(self.no_emoji)
+
+            def bool_check(reaction: Reaction, user: User):
+                return reaction.emoji in (self.yes_emoji, self.no_emoji)
+
+            check = self.combine_reaction_checks(bool_check)
+            reaction, _ = await self.bot.wait_for(
+                "reaction_add", check=check, timeout=timeout
+            )
+            return reaction.emoji == self.yes_emoji
+
+        raise NotImplementedError(
+            "Reaction input for given res_type {0.res_type} is unavailable!".format(
+                prompt
+            )
+        )
 
     # Front Facing methods
     async def get_input(self, prompt: Prompt):
@@ -124,7 +156,6 @@ class EmbedWizard:
             except UserInputError as e:
                 await self.handle_error(e)
             retries += 1
-            print(f"Retries  {retries}")
         raise WizardFailure("Maximum retries reached")
 
     async def start(self) -> None:
@@ -134,24 +165,31 @@ class EmbedWizard:
         prompt = self.prompts[0]
         embed.add_field(
             name=prompt.title,
-            value=f"{prompt.description}\nWaiting....",
+            value=prompt.get_waiting_message(),
+            inline=False,
         )
         self._message = await self.channel.send(embed=embed)
 
     async def update_message(
         self, prompt: Prompt, next_prompt: Optional[Prompt], result
     ) -> None:
+        self.update_embed(prompt, next_prompt, result)
+        await self.message.edit(embed=self.embed)
+
+    def update_embed(
+        self, prompt: Prompt, next_prompt: Optional[Prompt], result
+    ) -> None:
         embed = self.embed
         embed.remove_field(-1)
-        embed.add_field(name=prompt.title, value=self.to_str(result))
+        embed.add_field(name=prompt.title, value=self.to_str(result), inline=False)
         if next_prompt:
             embed.add_field(
                 name=next_prompt.title,
-                value=f"{next_prompt.description}\nWaiting....",
+                value=next_prompt.get_waiting_message(),
+                inline=False,
             )
         else:
-            embed.add_field(name="End", value="Wizard has ended")
-        await self.message.edit(embed=self.embed)
+            embed.add_field(name="End", value="Wizard has ended", inline=False)
 
     async def run(self):
         await self.start()
@@ -171,4 +209,6 @@ class EmbedWizard:
     def to_str(self, result):
         if hasattr(result, "mention"):
             return result.mention
+        if isinstance(result, Message):
+            return "Message with ID {0.id} in {0.channel.mention}".format(result)
         return str(result)

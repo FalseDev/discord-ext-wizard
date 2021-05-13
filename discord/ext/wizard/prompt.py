@@ -13,3 +13,6 @@ class Prompt:
     timeout: Optional[int] = None
     reaction_interface: Optional[bool] = None
     res_type: type = str
+
+    def get_waiting_message(self):
+        return f"{self.description}\nWaiting...." if self.description else "Waiting..."

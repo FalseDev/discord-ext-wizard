@@ -1,6 +1,6 @@
 from setuptools import setup
 
-version = "0.1.0"
+version = "0.2.0"
 
 with open("README.md") as f:
     long_description = f.read()
@@ -11,6 +11,7 @@ with open("requirements.txt") as f:
 setup(
     name="discord-ext-wizard",
     author="FalseDev",
+    author_email="59121948+FalseDev@users.noreply.github.com",
     version=version,
     url="https://github.com/FalseDev/discord-ext-wizard",
     packages=["discord.ext.wizard"],

@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 _VersionInfo = namedtuple("_VersionInfo", "major minor patch")
-version_info = _VersionInfo(0, 1, 0)
+version_info = _VersionInfo(0, 2, 0)
 
 __version__ = ".".join(str(v) for v in version_info)
 __license__ = "MIT"

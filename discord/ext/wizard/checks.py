@@ -105,10 +105,8 @@ class RoleBelowMemberCheck:
         if not isinstance(user, Member):
             raise UserInputError(self.error_message)
 
-        if user.guild.owner==user:
+        if user.guild.owner == user:
             return
 
-        if (
-            role.position >= user.top_role.position
-        ):
+        if role.position >= user.top_role.position:
             raise UserInputError(self.error_message)

@@ -1,5 +1,6 @@
+import asyncio
 import inspect
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from discord.abc import Messageable
 from discord.ext.commands import AutoShardedBot, Bot, CommandError, UserInputError
@@ -29,6 +30,7 @@ class EmbedWizard:
     def __init__(
         self,
         *,
+        title: str = "Wizard",
         prompts: List[Prompt],
         bot: BotType,
         channel: Messageable,
@@ -38,6 +40,7 @@ class EmbedWizard:
         yes_emoji: str = "\u2705",
         no_emoji: str = "\u274c",
     ) -> None:
+        self.title: str = title
         self.prompts: List[Prompt] = prompts
         self.channel: Messageable = channel
         self.user: Union[User, Member] = user
@@ -113,9 +116,23 @@ class EmbedWizard:
         timeout = self.get_timeout(prompt.timeout)
         msg = await self.bot.wait_for("message", check=check, timeout=timeout)
         ctx = await self.bot.get_context(msg)
-        return await maybe_async(converter, ctx, msg.content)
+
+        input_error: bool = True
+        try:
+            result = await maybe_async(converter, ctx, msg.content)
+            input_error = False
+            return result
+        except:
+            raise
+        finally:
+            await self.handle_message_input(msg, input_error)
 
     async def get_reaction_input(self, prompt: Prompt):
+        reaction = await self.get_actual_reaction_input(prompt)
+        await self.handle_reaction_input(reaction[0])
+        return reaction[1]
+
+    async def get_actual_reaction_input(self, prompt: Prompt) -> Tuple[Reaction, Any]:
         timeout = self.get_timeout(prompt.timeout)
         if prompt.res_type in (Reaction, Emoji):
             check = self.combine_reaction_checks(prompt.check)
@@ -123,8 +140,8 @@ class EmbedWizard:
                 "reaction_add", check=check, timeout=timeout
             )
             if prompt.res_type is Reaction:
-                return reaction
-            return reaction.emoji
+                return reaction, reaction
+            return reaction, reaction.emoji
 
         if prompt.res_type is bool:
             await self.message.add_reaction(self.yes_emoji)
@@ -137,7 +154,7 @@ class EmbedWizard:
             reaction, _ = await self.bot.wait_for(
                 "reaction_add", check=check, timeout=timeout
             )
-            return reaction.emoji == self.yes_emoji
+            return reaction, reaction.emoji == self.yes_emoji
 
         raise NotImplementedError(
             "Reaction input for given res_type {0.res_type} is unavailable!".format(
@@ -162,7 +179,7 @@ class EmbedWizard:
     async def start(self) -> None:
         if self._message:
             raise RuntimeError("Wizard already started")
-        embed = Embed(title="Wizard", color=Color.green())
+        embed = Embed(title=self.title, color=Color.green())
         prompt = self.prompts[0]
         embed.add_field(
             name=prompt.title,
@@ -196,7 +213,10 @@ class EmbedWizard:
         await self.start()
         for index in range(len(self.prompts)):
             prompt = self.prompts[index]
-            result = await self.get_input(prompt)
+            try:
+                result = await self.get_input(prompt)
+            except asyncio.TimeoutError as e:
+                return await self.on_timeout(prompt, e)
             self.results.append(result)
             next_prompt = (
                 self.prompts[index + 1] if len(self.prompts) > (index + 1) else None
@@ -206,6 +226,18 @@ class EmbedWizard:
 
     async def handle_error(self, e: Exception):
         await self.channel.send(e)
+
+    async def on_timeout(self, prompt: Prompt, e: asyncio.TimeoutError):
+        await self.handle_error(
+            WizardFailure("The wizard has failed due to no response for a long time.")
+        )
+        raise e
+
+    async def handle_message_input(self, message: Message, input_error: bool):
+        pass
+
+    async def handle_reaction_input(self, reaction: Reaction):
+        pass
 
     def to_str(self, result):
         if hasattr(result, "mention"):

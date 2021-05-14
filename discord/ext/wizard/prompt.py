@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+__all__ = ("Prompt",)
+
 
 @dataclass
 class Prompt:

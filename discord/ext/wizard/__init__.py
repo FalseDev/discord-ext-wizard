@@ -10,6 +10,7 @@ __title__ = "discord-ext-wizard"
 __copyright__ = "Copyright 2021 {}".format(__author__)
 __uri__ = "https://github.com/{}/{}".format(__author__, __title__)
 
-from .mixins import BaseMixin, ResendMixin
-from .prompt import Prompt
-from .wizard import EmbedWizard, WizardFailure
+from .checks import *
+from .mixins import *
+from .prompt import *
+from .wizard import *

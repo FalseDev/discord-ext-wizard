@@ -1,4 +1,3 @@
-import asyncio
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -9,6 +8,8 @@ from discord import Color, Embed, Emoji, Member, Message, Reaction, User
 
 from .converters import ConverterMapping
 from .prompt import Prompt
+
+__all__ = ("WizardFailure", "EmbedWizard")
 
 BotType = Union[Bot, AutoShardedBot]
 
@@ -151,7 +152,7 @@ class EmbedWizard:
             try:
                 result = await self.get_actual_input(prompt)
                 if prompt.post_check:
-                    await maybe_async(prompt.post_check, result)
+                    await maybe_async(prompt.post_check, self, result)
                 return result
             except UserInputError as e:
                 await self.handle_error(e)

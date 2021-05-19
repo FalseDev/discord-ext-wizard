@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from discord.abc import Messageable
 from discord.ext.commands import AutoShardedBot, Bot, CommandError, UserInputError
 
-from discord import Color, Embed, Emoji, Member, Message, Reaction, User
+from discord import Color, Colour, Embed, Emoji, Member, Message, Reaction, User
 
 from .converters import ConverterMapping
 from .prompt import Prompt
@@ -37,6 +37,8 @@ class EmbedWizard:
         user: Union[User, Member],
         converters: Dict[type, Callable] = None,
         default_timeout=60,
+        color: Union[Color, int] = Color.green()
+        colour: Union[Colour, int] = None
         yes_emoji: str = "\u2705",
         no_emoji: str = "\u274c",
     ) -> None:
@@ -50,6 +52,7 @@ class EmbedWizard:
             {} if converters is None else converters
         )
         self.default_timeout: int = default_timeout
+        self.color: Union[Color, Colour, int] = colour or color
         self.results: List[Any] = []
 
         # Emojis
@@ -179,7 +182,7 @@ class EmbedWizard:
     async def start(self) -> None:
         if self._message:
             raise RuntimeError("Wizard already started")
-        embed = Embed(title=self.title, color=Color.green())
+        embed = Embed(title=self.title, color=self.color)
         prompt = self.prompts[0]
         embed.add_field(
             name=prompt.title,

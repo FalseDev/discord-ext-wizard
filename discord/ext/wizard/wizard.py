@@ -223,7 +223,8 @@ class EmbedWizard:
 
     async def run(self):
         await self.start()
-        for index in range(len(self.prompts)):
+        index = 0
+        while index < len(self.prompts):
             prompt = self.prompts[index]
             try:
                 result = await self.get_input(prompt)
@@ -234,6 +235,7 @@ class EmbedWizard:
                 self.prompts[index + 1] if len(self.prompts) > (index + 1) else None
             )
             await self.update_message(prompt, next_prompt, result)
+            index += 1
         return self.results
 
     async def handle_error(self, e: Exception):

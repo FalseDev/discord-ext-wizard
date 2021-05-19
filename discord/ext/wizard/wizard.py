@@ -1,6 +1,6 @@
 import asyncio
 import inspect
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Union
 
 from discord.abc import Messageable
 from discord.ext.commands import AutoShardedBot, Bot, CommandError, UserInputError
@@ -31,6 +31,7 @@ class EmbedWizard:
         self,
         *,
         title: str = "Wizard",
+        cancel_text: str = "cancel",
         prompts: List[Prompt],
         bot: BotType,
         channel: Messageable,
@@ -41,8 +42,10 @@ class EmbedWizard:
         no_emoji: str = "\u274c",
         waiting_color: Color = Color.dark_orange(),
         success_color: Color = Color.green(),
+        cancel_poll_rate: Union[int, float] = 0.1,
     ) -> None:
         self.title: str = title
+        self.cancel_text: str = cancel_text
         self.prompts: List[Prompt] = prompts
         self.channel: Messageable = channel
         self.user: Union[User, Member] = user
@@ -52,7 +55,9 @@ class EmbedWizard:
             {} if converters is None else converters
         )
         self.default_timeout: int = default_timeout
+        self.completed = False
         self.results: List[Any] = []
+        self.cancel_poll_rate: Union[int, float] = cancel_poll_rate
 
         # Emojis
         self.yes_emoji: str = yes_emoji
@@ -222,6 +227,25 @@ class EmbedWizard:
             embed.add_field(name="End", value="Wizard has ended", inline=False)
 
     async def run(self):
+        run_coro = self.actually_run()
+        return (await asyncio.gather(run_coro, self.cancel_task(run_coro)))[0]
+
+    async def cancel_task(self, run_coro: Coroutine):
+        check = self.combine_message_checks(
+            lambda m: m.content.lower() == self.cancel_text
+        )
+        while True:
+            try:
+                await self.bot.wait_for(
+                    "message", check=check, timeout=self.cancel_poll_rate
+                )
+            except asyncio.TimeoutError:
+                if self.completed:
+                    return
+            else:
+                return run_coro.throw(WizardFailure("Cancelled by user"))
+
+    async def actually_run(self):
         await self.start()
         index = 0
         while index < len(self.prompts):
@@ -236,6 +260,7 @@ class EmbedWizard:
             )
             await self.update_message(prompt, next_prompt, result)
             index += 1
+        self.completed = True
         return self.results
 
     async def handle_error(self, e: Exception):

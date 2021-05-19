@@ -40,8 +40,8 @@ class EmbedWizard:
         default_timeout=60,
         yes_emoji: str = "\u2705",
         no_emoji: str = "\u274c",
-        waiting_color: Color = Color.dark_orange(),
-        success_color: Color = Color.green(),
+        waiting_color: Union[Color, int] = Color.dark_orange(),
+        success_color: Union[Color, int] = Color.green(),
         cancel_poll_rate: Union[int, float] = 0.1,
     ) -> None:
         self.title: str = title
@@ -64,8 +64,8 @@ class EmbedWizard:
         self.no_emoji: str = no_emoji
 
         # Colors
-        self.waiting_color: Color = waiting_color
-        self.success_color: Color = success_color
+        self.waiting_color: Union[Color, int] = waiting_color
+        self.success_color: Union[Color, int] = success_color
 
     # Properties
 
@@ -116,12 +116,11 @@ class EmbedWizard:
 
     async def get_actual_input(self, prompt: Prompt) -> Any:
         if isinstance(prompt.res_type, type):
-            if not prompt.reaction_interface and not issubclass(
-                prompt.res_type, (Reaction, Emoji)
+            if (
+                issubclass(prompt.res_type, (Emoji, Reaction))
+                or prompt.reaction_interface
             ):
-                return await self.get_message_input(prompt)
-        if prompt.reaction_interface:
-            return await self.get_reaction_input(prompt)
+                return await self.get_reaction_input(prompt)
         return await self.get_message_input(prompt)
 
     async def get_message_input(self, prompt: Prompt):

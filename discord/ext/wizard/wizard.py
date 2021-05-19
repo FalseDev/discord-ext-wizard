@@ -39,6 +39,8 @@ class EmbedWizard:
         default_timeout=60,
         yes_emoji: str = "\u2705",
         no_emoji: str = "\u274c",
+        waiting_color: Color = Color.dark_orange(),
+        success_color: Color = Color.green(),
     ) -> None:
         self.title: str = title
         self.prompts: List[Prompt] = prompts
@@ -55,6 +57,10 @@ class EmbedWizard:
         # Emojis
         self.yes_emoji: str = yes_emoji
         self.no_emoji: str = no_emoji
+
+        # Colors
+        self.waiting_color: Color = waiting_color
+        self.success_color: Color = success_color
 
     # Properties
 
@@ -103,12 +109,15 @@ class EmbedWizard:
 
     # Input methods
 
-    async def get_actual_input(self, prompt: Prompt):
-        if not prompt.reaction_interface and not issubclass(
-            prompt.res_type, (Reaction, Emoji)
-        ):
-            return await self.get_message_input(prompt)
-        return await self.get_reaction_input(prompt)
+    async def get_actual_input(self, prompt: Prompt) -> Any:
+        if isinstance(prompt.res_type, type):
+            if not prompt.reaction_interface and not issubclass(
+                prompt.res_type, (Reaction, Emoji)
+            ):
+                return await self.get_message_input(prompt)
+        if prompt.reaction_interface:
+            return await self.get_reaction_input(prompt)
+        return await self.get_message_input(prompt)
 
     async def get_message_input(self, prompt: Prompt):
         converter = self.converters[prompt.res_type]
@@ -179,7 +188,7 @@ class EmbedWizard:
     async def start(self) -> None:
         if self._message:
             raise RuntimeError("Wizard already started")
-        embed = Embed(title=self.title, color=Color.green())
+        embed = Embed(title=self.title, color=self.waiting_color)
         prompt = self.prompts[0]
         embed.add_field(
             name=prompt.title,
@@ -199,7 +208,9 @@ class EmbedWizard:
     ) -> None:
         embed = self.embed
         embed.remove_field(-1)
-        embed.add_field(name=prompt.title, value=self.to_str(result), inline=False)
+        embed.add_field(
+            name=prompt.title, value=self.to_str(prompt, result), inline=False
+        )
         if next_prompt:
             embed.add_field(
                 name=next_prompt.title,
@@ -207,6 +218,7 @@ class EmbedWizard:
                 inline=False,
             )
         else:
+            embed.color = self.success_color
             embed.add_field(name="End", value="Wizard has ended", inline=False)
 
     async def run(self):
@@ -239,7 +251,9 @@ class EmbedWizard:
     async def handle_reaction_input(self, reaction: Reaction):
         pass
 
-    def to_str(self, result):
+    def to_str(self, prompt: Prompt, result) -> str:
+        if prompt.to_str is not None:
+            return prompt.to_str(result)
         if hasattr(result, "mention"):
             return result.mention
         if isinstance(result, Message):

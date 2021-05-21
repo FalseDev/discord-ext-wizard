@@ -89,21 +89,21 @@ class EmbedWizard:
 
     # Check combiners
 
-    def combine_message_checks(self, check: Optional[Callable]):
-        if not check:
+    def combine_message_checks(self, *checks: Optional[Tuple[Callable]]):
+        if not checks:
             return self.default_message_check
 
         def combined_check(m: Message):
-            return self.default_message_check(m) and check(m)
+            return self.default_message_check(m) and all(check(m) for check in checks)
 
         return combined_check
 
-    def combine_reaction_checks(self, check: Optional[Callable]):
-        if not check:
+    def combine_reaction_checks(self, *checks: Optional[Tuple[Callable]]):
+        if not checks:
             return self.default_reaction_check
 
         def combined_check(r: Reaction, u: User):
-            return self.default_reaction_check(r, u) and check(r, u)
+            return self.default_reaction_check(r, u) and all(check(r, u) for check in checks)
 
         return combined_check
 

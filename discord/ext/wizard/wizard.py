@@ -1,6 +1,6 @@
 import asyncio
 import inspect
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Union
 
 from discord.abc import Messageable
 from discord.ext.commands import AutoShardedBot, Bot, CommandError, UserInputError
@@ -31,6 +31,7 @@ class EmbedWizard:
         self,
         *,
         title: str = "Wizard",
+        cancel_text: str = "cancel",
         prompts: List[Prompt],
         bot: BotType,
         channel: Messageable,
@@ -39,8 +40,12 @@ class EmbedWizard:
         default_timeout=60,
         yes_emoji: str = "\u2705",
         no_emoji: str = "\u274c",
+        waiting_color: Union[Color, int] = Color.dark_orange(),
+        success_color: Union[Color, int] = Color.green(),
+        cancel_poll_rate: Union[int, float] = 0.1,
     ) -> None:
         self.title: str = title
+        self.cancel_text: str = cancel_text
         self.prompts: List[Prompt] = prompts
         self.channel: Messageable = channel
         self.user: Union[User, Member] = user
@@ -50,11 +55,17 @@ class EmbedWizard:
             {} if converters is None else converters
         )
         self.default_timeout: int = default_timeout
+        self.completed = False
         self.results: List[Any] = []
+        self.cancel_poll_rate: Union[int, float] = cancel_poll_rate
 
         # Emojis
         self.yes_emoji: str = yes_emoji
         self.no_emoji: str = no_emoji
+
+        # Colors
+        self.waiting_color: Union[Color, int] = waiting_color
+        self.success_color: Union[Color, int] = success_color
 
     # Properties
 
@@ -103,12 +114,14 @@ class EmbedWizard:
 
     # Input methods
 
-    async def get_actual_input(self, prompt: Prompt):
-        if not prompt.reaction_interface and not issubclass(
-            prompt.res_type, (Reaction, Emoji)
-        ):
-            return await self.get_message_input(prompt)
-        return await self.get_reaction_input(prompt)
+    async def get_actual_input(self, prompt: Prompt) -> Any:
+        if isinstance(prompt.res_type, type):
+            if (
+                issubclass(prompt.res_type, (Emoji, Reaction))
+                or prompt.reaction_interface
+            ):
+                return await self.get_reaction_input(prompt)
+        return await self.get_message_input(prompt)
 
     async def get_message_input(self, prompt: Prompt):
         converter = self.converters[prompt.res_type]
@@ -179,7 +192,7 @@ class EmbedWizard:
     async def start(self) -> None:
         if self._message:
             raise RuntimeError("Wizard already started")
-        embed = Embed(title=self.title, color=Color.green())
+        embed = Embed(title=self.title, color=self.waiting_color)
         prompt = self.prompts[0]
         embed.add_field(
             name=prompt.title,
@@ -199,7 +212,9 @@ class EmbedWizard:
     ) -> None:
         embed = self.embed
         embed.remove_field(-1)
-        embed.add_field(name=prompt.title, value=self.to_str(result), inline=False)
+        embed.add_field(
+            name=prompt.title, value=self.to_str(prompt, result), inline=False
+        )
         if next_prompt:
             embed.add_field(
                 name=next_prompt.title,
@@ -207,11 +222,32 @@ class EmbedWizard:
                 inline=False,
             )
         else:
+            embed.color = self.success_color
             embed.add_field(name="End", value="Wizard has ended", inline=False)
 
     async def run(self):
+        run_coro = self.actually_run()
+        return (await asyncio.gather(run_coro, self.cancel_task(run_coro)))[0]
+
+    async def cancel_task(self, run_coro: Coroutine):
+        check = self.combine_message_checks(
+            lambda m: m.content.lower() == self.cancel_text
+        )
+        while True:
+            try:
+                await self.bot.wait_for(
+                    "message", check=check, timeout=self.cancel_poll_rate
+                )
+            except asyncio.TimeoutError:
+                if self.completed:
+                    return
+            else:
+                return run_coro.throw(WizardFailure("Cancelled by user"))
+
+    async def actually_run(self):
         await self.start()
-        for index in range(len(self.prompts)):
+        index = 0
+        while index < len(self.prompts):
             prompt = self.prompts[index]
             try:
                 result = await self.get_input(prompt)
@@ -222,6 +258,8 @@ class EmbedWizard:
                 self.prompts[index + 1] if len(self.prompts) > (index + 1) else None
             )
             await self.update_message(prompt, next_prompt, result)
+            index += 1
+        self.completed = True
         return self.results
 
     async def handle_error(self, e: Exception):
@@ -239,7 +277,9 @@ class EmbedWizard:
     async def handle_reaction_input(self, reaction: Reaction):
         pass
 
-    def to_str(self, result):
+    def to_str(self, prompt: Prompt, result) -> str:
+        if prompt.to_str is not None:
+            return prompt.to_str(result)
         if hasattr(result, "mention"):
             return result.mention
         if isinstance(result, Message):

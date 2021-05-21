@@ -1,4 +1,4 @@
-from typing import Awaitable, Callable, Dict, Mapping
+from typing import Any, Awaitable, Callable, Dict, Mapping, Union
 
 from discord.ext.commands import BadArgument, BadBoolArgument, Context
 from discord.ext.commands import converter as discord_converters
@@ -31,10 +31,16 @@ class ConverterMapping:
         int: convert_int,
     }
 
-    def __init__(self, converters: Mapping[type, Callable]) -> None:
+    def __init__(
+        self, converters: Mapping[type, Callable[[Context, str], Any]]
+    ) -> None:
         self.converters = converters
 
-    def __getitem__(self, key: type) -> Callable[[Context, str], Awaitable]:
+    def __getitem__(
+        self, key: Union[Callable[[Context, str], Any], type]
+    ) -> Callable[[Context, str], Awaitable]:
+        if not isinstance(key, type):
+            return key
         if key in self.converters:
             return self.converters[key]
 
@@ -44,4 +50,6 @@ class ConverterMapping:
         try:
             return getattr(discord_converters, key.__name__ + "Converter")().convert
         except AttributeError as exc:
+            if hasattr(key, "convert"):
+                return getattr(key, "convert")
             raise RuntimeError("Couldn't find valid converter") from exc

@@ -8,18 +8,12 @@ from discord.ext.commands import AutoShardedBot, Bot, CommandError, UserInputErr
 from discord import Color, Embed, Emoji, Member, Message, Reaction, User
 
 from .converters import ConverterMapping
+from .helpers import maybe_async
 from .prompt import Prompt
 
 __all__ = ("WizardFailure", "EmbedWizard")
 
 BotType = Union[Bot, AutoShardedBot]
-
-
-async def maybe_async(func, *args, **kwargs):
-    res = func(*args, **kwargs)
-    if inspect.iscoroutine(res):
-        return await res
-    return res
 
 
 class WizardFailure(CommandError):
